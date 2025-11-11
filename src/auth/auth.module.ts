@@ -5,12 +5,10 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
-import { PrismaModule } from '../prisma/prisma.module'; // Importa tu módulo de Prisma
 import { JwtStrategy } from './jwt.strategy'; // Lo crearemos ahora
 
 @Module({
   imports: [
-    PrismaModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'ESTE-ES-UN-SECRETO-DE-DESARROLLO', // ¡Usa variables de entorno en producción!

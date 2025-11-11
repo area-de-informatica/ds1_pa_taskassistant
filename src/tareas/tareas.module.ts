@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TareasService } from './tareas.service';
 import { TareasController } from './tareas.controller';
-import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { MulterModule } from '@nestjs/platform-express'; // (RF-010) Para subida de archivos
 import { diskStorage } from 'multer'; // (RF-010) Para configurar el almacenamiento
@@ -11,7 +10,6 @@ import { Tarea, TareaSchema } from '../schemas/tarea.schema';
 
 @Module({
   imports: [
-    PrismaModule,
     AuthModule,
     MongooseModule.forFeature([{ name: Tarea.name, schema: TareaSchema }]),
     // (RF-010) Configuración de Multer para la subida de archivos
