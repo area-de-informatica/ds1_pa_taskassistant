@@ -10,9 +10,30 @@ import { CreateTareaDto } from './dto/create-tarea.dto';
 import { UpdateTareaDto } from './dto/update-tarea.dto';
 import { UpdateProgresoDto } from './dto/update-progreso.dto';
 import { LogTiempoDto } from './dto/log-tiempo.dto';
+import { CreateCalificacionDto } from './dto/create-calificacion.dto';
+import { CreateRecursoLinkDto } from './dto/create-recurso-link.dto';
+import { LinkEtiquetaDto } from './dto/link-etiqueta.dto';
 
 // --- Tipos de Prisma ---
-import { EstadoTarea, PrioridadTarea, RolUsuario } from '@prisma/client';
+// (Asegúrate de tener estos Enums definidos en tu schema.prisma o importarlos de otro lugar)
+// Por ahora, usaremos strings basados en tu esquema
+enum EstadoTarea {
+  nueva = 'pendiente', // Asumo que "pendiente" es el inicial
+  en_progreso = 'en_progreso',
+  completada = 'completada',
+  archivada = 'archivada', // No está en tu esquema, lo omitiremos
+}
+
+enum TipoRecurso {
+  pdf = 'pdf',
+  img = 'img',
+  video = 'video',
+  link = 'link',
+  otro = 'otro',
+}
+// (Tu esquema de Mongo no tiene PrioridadTarea, RolUsuario en Prisma,
+// así que los manejaremos como strings)
+type RolUsuario = 'administrador' | 'docente_principal' | 'docente_invitado' | 'estudiante';
 
 // Payload del usuario decodificado del JWT
 type userPayload = {
@@ -27,103 +48,97 @@ export class TareasService {
 
   /**
    * (RF-001) Crear Tarea
+   * (Adaptado a Mongo: asignadoId es null al crear)
    */
   async create(
-    proyectoId: string,
+    proyectoId: string, // (Tu esquema no tiene Proyecto, adaptaré)
     idUsuarioCreador: string,
     createTareaDto: CreateTareaDto,
   ) {
-    // (Añadir lógica de autorización: verificar si el usuario pertenece al proyecto)
-
     return this.prisma.tarea.create({
       data: {
-        ...createTareaDto,
-        estado: createTareaDto.estado || EstadoTarea.nueva,
-        prioridad: createTareaDto.prioridad || PrioridadTarea.baja,
-        proyecto: {
-          connect: { id: proyectoId },
-        },
-        usuarioCreador: {
-          connect: { id: idUsuarioCreador },
-        },
+        titulo: createTareaDto.titulo,
+        descripcion: createTareaDto.descripcion || '',
+        estado: EstadoTarea.nueva,
+        prioridad: createTareaDto.prioridad || 'baja', // Asumiendo campo 'prioridad'
+        creadorId: idUsuarioCreador,
+        asignadoId: null, // Nadie asignado al crear
+        fechaVencimiento: createTareaDto.fechaEntrega ? new Date(createTareaDto.fechaEntrega) : null,
+        // (proyectoId no está en tu esquema de Tarea)
       },
     });
   }
 
   /**
-   * (RF-001) Leer Tareas (solo activas)
+   * (RF-001) Leer Tareas
+   * (Adaptado a Mongo)
    */
   async findAll(proyectoId: string, user: userPayload) {
-    // (Añadir lógica de autorización: verificar si user.userId tiene acceso a proyectoId)
-
+    // (Tu esquema no filtra por proyecto, así que buscaremos
+    // tareas asignadas al usuario o creadas por él)
     return this.prisma.tarea.findMany({
       where: {
-        idProyecto: proyectoId,
-        eliminada: null, // No mostrar las de la papelera
+        OR: [
+          { creadorId: user.userId }, 
+          { asignadoId: user.userId }
+        ],
+        // eliminada: null, // (Tu esquema no tiene soft delete)
       },
       orderBy: {
-        fechaCreacion: 'desc',
+        createdAt: 'desc',
       },
     });
   }
 
   /**
-   * (RF-001) Leer una Tarea (solo activa)
+   * (RF-001) Leer una Tarea
+   * (Adaptado a Mongo)
    */
   async findOne(tareaId: string, user: userPayload) {
     const tarea = await this.prisma.tarea.findUnique({
       where: {
         id: tareaId,
-        eliminada: null, // Solo encontrar si está activa
+        // eliminada: null, 
       },
       include: {
         comentarios: true,
-        recursos: true,
-        asignaciones: true,
+        // (Tu esquema no tiene 'recursos')
+        etiquetas: { include: { etiquetaColor: true, etiquetaPalabra: true } },
+        metas: { include: { meta: true } },
+        asignado: { select: { id: true, nombre: true, email: true } },
+        creador: { select: { id: true, nombre: true, email: true } },
       },
     });
 
     if (!tarea) {
-      throw new NotFoundException('Tarea no encontrada o está en la papelera');
+      throw new NotFoundException('Tarea no encontrada');
     }
-
-    // (Añadir lógica de autorización: verificar si el usuario puede ver esta tarea)
-
+    // (Lógica de autorización: ¿puede el usuario ver esta tarea?)
+    if (tarea.creadorId !== user.userId && tarea.asignadoId !== user.userId && user.rol !== 'administrador') {
+       throw new ForbiddenException('No tienes permiso para ver esta tarea');
+    }
     return tarea;
   }
 
   /**
    * (RF-005) Actualizar Tarea
+   * (Adaptado a Mongo)
    */
   async update(
     tareaId: string,
-    updateTareaDto: UpdateTareaDto,
+    updateTareaDto: UpdateTareaDto, // (DTO necesitaría ser adaptado a tu esquema)
     user: userPayload,
   ) {
-    try {
-      // (Añadir lógica de autorización: verificar si el usuario es dueño del proyecto)
-
-      return await this.prisma.tarea.update({
-        where: { id: tareaId },
-        data: updateTareaDto,
-      });
-    } catch (error) {
-      // (error.code === 'P2025' es el código de Prisma para "Registro no encontrado")
-      throw new NotFoundException('Tarea no encontrada');
-    }
-  }
-
-  /**
-   * (RF-001 Delete) Enviar Tarea a Papelera (Soft Delete)
-   */
-  async remove(tareaId: string, user: userPayload) {
-    // (Añadir lógica de autorización)
-
+    // (Añadir lógica de autorización: solo creador o admin puede editar)
     try {
       return await this.prisma.tarea.update({
         where: { id: tareaId },
         data: {
-          eliminada: new Date(), // Marcar la fecha de eliminación
+          titulo: updateTareaDto.titulo,
+          descripcion: updateTareaDto.descripcion,
+          estado: updateTareaDto.estado,
+          prioridad: updateTareaDto.prioridad,
+          fechaVencimiento: updateTareaDto.fechaEntrega ? new Date(updateTareaDto.fechaEntrega) : undefined,
         },
       });
     } catch (error) {
@@ -132,124 +147,86 @@ export class TareasService {
   }
 
   /**
-   * (RF-002) Recuperar Tarea desde la Papelera
+   * (RF-001 Delete) Borrado Físico
+   * (Adaptado a Mongo: tu esquema no tiene 'eliminada' para soft delete)
    */
-  async recover(tareaId: string, user: userPayload) {
-    // (Añadir lógica de autorización)
-
-    // 1. Verificar si la tarea existe, incluso si está eliminada
-    const tarea = await this.prisma.tarea.findUnique({
-      where: { id: tareaId },
-    });
-
-    if (!tarea) {
+  async remove(tareaId: string, user: userPayload) {
+    // (Añadir lógica de autorización: solo creador o admin)
+    try {
+      // (CUIDADO: Esto es un borrado físico)
+      return await this.prisma.tarea.delete({
+        where: { id: tareaId },
+      });
+    } catch (error) {
       throw new NotFoundException('Tarea no encontrada');
     }
-
-    // 2. Verificar si la tarea está realmente en la papelera
-    if (tarea.eliminada === null) {
-      throw new ForbiddenException('La tarea no está eliminada');
-    }
-
-    // (Lógica de 30 días:
-    // const diasEliminada = (new Date().getTime() - tarea.eliminada.getTime()) / (1000 * 3600 * 24);
-    // if (diasEliminada > 30) { ... } )
-
-    // 3. Restaurar la tarea
-    return this.prisma.tarea.update({
-      where: { id: tareaId },
-      data: {
-        eliminada: null, // Quitar la marca de eliminación
-      },
-    });
   }
 
   /**
+   * (RF-002) Recuperar Tarea
+   * (No aplicable a tu esquema Mongo, no hay soft delete)
+   */
+  // async recover(...) {}
+
+
+  // --- MÉTODOS REFACTORIZADOS (MongoDB) ---
+
+  /**
    * (RF-006) Asignar Tarea a un Usuario
+   * (Refactorizado para Mongo: Actualiza el campo 'asignadoId' 1:N)
    */
   async assign(
     tareaId: string,
     idUsuarioAsignado: string,
-    idUsuarioAsignador: string,
+    idUsuarioAsignador: string, // (Este ID ahora es solo para logs o notificaciones)
   ) {
-    // (Añadir lógica de autorización:
-    // 1. Verificar que 'tareaId' y 'idUsuarioAsignado' existan.
-    // 2. Verificar que 'idUsuarioAsignado' tenga rol 'estudiante'.
-    // 3. Verificar que ambos pertenezcan al mismo proyecto.)
-
+    // (Lógica de autorización: verificar que idUsuarioAsignador sea admin/docente)
     try {
-      const asignacion = await this.prisma.asignacionTarea.create({
+      return await this.prisma.tarea.update({
+        where: { id: tareaId },
         data: {
-          idTarea: tareaId,
-          idUsuario: idUsuarioAsignado,
-          asignadaPorId: idUsuarioAsignador,
+          asignadoId: idUsuarioAsignado,
+          // (Opcional: resetear progreso al re-asignar)
+          // progreso: 0, 
         },
       });
-
       // (RF-021: Disparar una notificación aquí)
-
-      return asignacion;
     } catch (error) {
-      // Manejar error si la asignación ya existe (Clave Primaria duplicada)
-      if (error.code === 'P2002') {
-        throw new ForbiddenException('El usuario ya está asignado a esta tarea');
-      }
       throw new NotFoundException('Tarea o Usuario no encontrado');
     }
   }
 
   /**
-   * (RF-011) Actualizar Progreso Individual (y estado de la Tarea)
+   * (RF-011) Actualizar Progreso Individual
+   * (Refactorizado para Mongo: Actualiza el campo 'progreso' en la Tarea)
    */
   async updateProgreso(
     tareaId: string,
-    userId: string,
+    userId: string, // ID del usuario que reporta el progreso
     updateProgresoDto: UpdateProgresoDto,
   ) {
     // 1. Autorización: Verificar que el usuario esté asignado a la tarea
     await this.checkIfUserIsAssigned(tareaId, userId);
 
     const { porcentaje } = updateProgresoDto;
-    let nuevoEstadoTarea = undefined;
+    let nuevoEstadoTarea = EstadoTarea.nueva;
 
     // 2. Lógica de RF-011: Cambiar estado de la tarea según el progreso
     if (porcentaje === 100) {
       nuevoEstadoTarea = EstadoTarea.completada;
     } else if (porcentaje > 0) {
       nuevoEstadoTarea = EstadoTarea.en_progreso;
-    } else {
-      nuevoEstadoTarea = EstadoTarea.nueva;
     }
 
-    // 3. Usamos una transacción para actualizar ambas tablas (Progreso y Tarea)
+    // 3. Actualizar la Tarea (no se necesita transacción)
     try {
-      const [progreso] = await this.prisma.$transaction([
-        // Paso A: Actualizar o crear el registro de progreso individual
-        this.prisma.progreso.upsert({
-          where: {
-            // Esto requiere un constraint @@unique([idTarea, idUsuario])
-            idTarea_idUsuario: { idTarea: tareaId, idUsuario: userId },
-          },
-          update: {
-            porcentaje: porcentaje,
-            fechaActualizacion: new Date(),
-          },
-          create: {
-            idTarea: tareaId,
-            idUsuario: userId,
-            porcentaje: porcentaje,
-          },
-        }),
-        // Paso B: Actualizar el estado de la Tarea principal
-        this.prisma.tarea.update({
-          where: { id: tareaId },
-          data: {
-            estado: nuevoEstadoTarea,
-            // (Opcional: aquí podrías calcular el % general de la tarea si hay varios asignados)
-          },
-        }),
-      ]);
-      return progreso;
+      return await this.prisma.tarea.update({
+        where: { id: tareaId },
+        data: {
+          progreso: porcentaje,
+          estado: nuevoEstadoTarea,
+        },
+      });
     } catch (error) {
       throw new NotFoundException('Tarea no encontrada');
     }
@@ -257,6 +234,7 @@ export class TareasService {
 
   /**
    * (RF-012) Registrar Tiempo en Tarea
+   * (Refactorizado para Mongo: Incrementa el campo 'tiempoRegistrado' en la Tarea)
    */
   async logTiempo(
     tareaId: string,
@@ -266,57 +244,104 @@ export class TareasService {
     // 1. Autorización: Verificar que el usuario esté asignado a la tarea
     await this.checkIfUserIsAssigned(tareaId, userId);
 
-    // 2. Crear el registro de tiempo
-    return this.prisma.registroTiempo.create({
+    // 2. Incrementar el tiempo atómicamente
+    return this.prisma.tarea.update({
+      where: { id: tareaId },
       data: {
-        idTarea: tareaId,
-        idUsuario: userId,
-        minutos: logTiempoDto.minutos,
-        // 'fecha' se establece por defecto (según tu esquema)
+        tiempoRegistrado: {
+          increment: logTiempoDto.minutos,
+        },
       },
     });
   }
 
-  // --- MÉTODO HELPER DE AUTORIZACIÓN ---
+  // --- FIN DE MÉTODOS REFACTORIZADOS ---
+
+  /**
+   * (RF-020) Calificar una Tarea
+   * (AÚN NO IMPLEMENTADO - Requiere modificar el schema.prisma)
+   */
+  async calificar(
+    // ... (lógica futura)
+  ) {
+     throw new Error('Funcionalidad no implementada. El esquema de Mongo debe ser actualizado.');
+  }
+
+
+  /**
+   * (RF-010) Recursos (Enlaces y Archivos)
+   * (AÚN NO IMPLEMENTADO - Requiere modificar el schema.prisma)
+   */
+  // async addLinkRecurso(...) {}
+  // async addFileRecurso(...) {}
+
+
+  /**
+   * (RF-014/RF-015) Gestión de Etiquetas
+   * (Lógica adaptada a tu esquema 'EtiquetaTarea')
+   */
+  async addEtiqueta(tareaId: string, etiquetaId: string, tipo: 'color' | 'palabra') {
+    // (Autorización)
+    try {
+      return await this.prisma.etiquetaTarea.create({
+        data: {
+          tareaId: tareaId,
+          etiquetaPalabraId: tipo === 'palabra' ? etiquetaId : undefined,
+          etiquetaColorId: tipo === 'color' ? etiquetaId : undefined,
+        },
+      });
+    } catch (error) { /* ... manejo de errores ... */ }
+  }
+
+  async removeEtiqueta(tareaId: string, etiquetaId: string, tipo: 'color' | 'palabra') {
+     // (Autorización)
+    try {
+      const relacion = await this.prisma.etiquetaTarea.findFirst({
+         where: { 
+           tareaId: tareaId,
+           [tipo === 'color' ? 'etiquetaColorId' : 'etiquetaPalabraId']: etiquetaId,
+         }
+      });
+      if (!relacion) throw new NotFoundException('Relación no encontrada');
+      
+      await this.prisma.etiquetaTarea.delete({ where: { id: relacion.id } });
+    } catch (error) { /* ... manejo de errores ... */ }
+  }
+
+
+  /**
+   * (RF-016) Anclar Tarea
+   * (AÚN NO IMPLEMENTADO - Requiere modificar el schema.prisma)
+   */
+  // async anclar(...) {}
+  // async desanclar(...) {}
+
+
+  // --- HELPER REFACTORIZADO (MongoDB) ---
 
   /**
    * Verifica si un usuario está asignado a una tarea.
    * Lanza un ForbiddenException si no lo está.
-   * Cumple con RF-012: "el Estudiante solo en sus tareas".
+   * (Refactorizado para Mongo: comprueba el campo 'asignadoId')
    */
   private async checkIfUserIsAssigned(tareaId: string, userId: string) {
-    const asignacion = await this.prisma.asignacionTarea.findUnique({
+    const tarea = await this.prisma.tarea.findUnique({
       where: {
-        idTarea_idUsuario: {
-          idTarea: tareaId,
-          idUsuario: userId,
-        },
+        id: tareaId,
+      },
+      select: {
+        asignadoId: true,
       },
     });
 
-    if (!asignacion) {
+    if (!tarea) {
+      throw new NotFoundException('Tarea no encontrada');
+    }
+
+    if (tarea.asignadoId !== userId) {
       throw new ForbiddenException(
-        'No tienes permiso para registrar progreso o tiempo en esta tarea (no estás asignado)',
+        'No tienes permiso para esta acción (no estás asignado a la tarea)',
       );
     }
   }
 }
-
-/**
- * NOTA DE IMPLEMENTACIÓN:
- * * Para que el método `updateProgreso` funcione con `upsert` eficientemente,
- * tu `schema.prisma` en el modelo `Progreso` debe tener un constraint único
- * que combine `idTarea` y `idUsuario`.
- *
- * model Progreso {
- * id        String   @id @default(uuid())
- * idTarea   String
- * idUsuario String
- * porcentaje Int
- * fechaActualizacion DateTime @updatedAt
- *
- * // ...relaciones...
- *
- * @@unique([idTarea, idUsuario], name: "idTarea_idUsuario") // <-- AÑADIR ESTO
- * }
- */
