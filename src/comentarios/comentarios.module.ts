@@ -7,7 +7,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module'; // Importante para los Guards
 
 @Module({
-  imports: [PrismaModule, AuthModule], // Importamos Prisma y Auth
+  imports: [PrismaModule, AuthModule], // Realizamos la importacion los modulos de Prisma y Auth
   controllers: [ComentariosController],
   providers: [ComentariosService],
 })
