@@ -1,0 +1,139 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  email       String    @unique
+  password    String
+  nombre      String
+  rol         String
+  tareasCreadas    Tarea[]   @relation("CreadorTarea")
+  tareasAsignadas  Tarea[]   @relation("AsignadoTarea")
+  comentarios      Comentario[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  calificacionesDadas Calificacion[] @relation("CalificacionesDadas")
+}
+
+model Tarea {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  titulo      String
+  descripcion String
+  estado      String    // "pendiente", "en_progreso", "completada"
+  prioridad   String    // "baja", "media", "alta"
+  creador     Usuario   @relation("CreadorTarea", fields: [creadorId], references: [id])
+  creadorId   String    @db.ObjectId
+  asignado    Usuario?  @relation("AsignadoTarea", fields: [asignadoId], references: [id])
+  asignadoId  String?   @db.ObjectId
+  progreso    Int       @default(0)
+  tiempoEstimado Int?   // en minutos
+  tiempoRegistrado Int  @default(0)  // en minutos
+  fechaVencimiento DateTime?
+  comentarios Comentario[]
+  etiquetas   EtiquetaTarea[]
+  metas       MetaTarea[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  calificaciones      Calificacion[] @relation("CalificacionesDeTarea")
+  recursos            Recurso[]      @relation("RecursosDeTarea")
+}
+
+model Comentario {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  contenido String
+  tarea     Tarea    @relation(fields: [tareaId], references: [id])
+  tareaId   String   @db.ObjectId
+  autor     Usuario  @relation(fields: [autorId], references: [id])
+  autorId   String   @db.ObjectId
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EtiquetaPalabra {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  palabra   String    @unique
+  tareas    EtiquetaTarea[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model EtiquetaColor {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  color     String    @unique
+  tareas    EtiquetaTarea[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model EtiquetaTarea {
+  id                String          @id @default(auto()) @map("_id") @db.ObjectId
+  tarea             Tarea           @relation(fields: [tareaId], references: [id])
+  tareaId           String          @db.ObjectId
+  etiquetaPalabra   EtiquetaPalabra? @relation(fields: [etiquetaPalabraId], references: [id])
+  etiquetaPalabraId String?         @db.ObjectId
+  etiquetaColor     EtiquetaColor?   @relation(fields: [etiquetaColorId], references: [id])
+  etiquetaColorId   String?         @db.ObjectId
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model Meta {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  titulo      String
+  descripcion String
+  tareas      MetaTarea[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model MetaTarea {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  meta      Meta     @relation(fields: [metaId], references: [id])
+  metaId    String   @db.ObjectId
+  tarea     Tarea    @relation(fields: [tareaId], references: [id])
+  tareaId   String   @db.ObjectId
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Calificacion {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  puntaje         Int      // RF-020: Puntaje (0-100)
+  nota            String?  // RF-020: Retroalimentación textual
+  
+  // Relación con la Tarea calificada (1:N)
+  tarea           Tarea    @relation("CalificacionesDeTarea", fields: [tareaId], references: [id])
+  tareaId         String   @db.ObjectId
+  
+  // Relación con el Usuario que califica (1:N)
+  calificador     Usuario  @relation("CalificacionesDadas", fields: [calificadorId], references: [id])
+  calificadorId   String   @db.ObjectId
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Recurso {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  nombre    String   // Ej: "Guía de Estilos.pdf" o "Documentación Oficial"
+  url       String   // URL del enlace O la ruta/URL del archivo subido
+  tipo      TipoRecurso // link, pdf, img, etc.
+  formato   String?  // Ej: 'application/pdf', 'image/jpeg' (solo para archivos)
+  tamaño    Int?     // Tamaño en bytes (solo para archivos)
+
+  // Relación con la Tarea (1:N)
+  tarea     Tarea    @relation("RecursosDeTarea", fields: [tareaId], references: [id])
+  tareaId   String   @db.ObjectId
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
