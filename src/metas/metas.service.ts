@@ -1,77 +1,68 @@
 // src/metas/metas.service.ts
+
 import {
   Injectable,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Meta, MetaDocument } from '../schemas/meta.schema';
+import { MetaTarea, MetaTareaDocument } from '../schemas/meta-tarea.schema';
 import { CreateMetaDto } from './dto/create-meta.dto';
 
 @Injectable()
 export class MetasService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    @InjectModel(Meta.name) private metaModel: Model<MetaDocument>,
+    @InjectModel(MetaTarea.name) private metaTareaModel: Model<MetaTareaDocument>,
+  ) {}
 
+  // (CRUD de Metas)
   create(dto: CreateMetaDto) {
-    return this.prisma.meta.create({
-      data: dto,
-    });
+    const nuevaMeta = new this.metaModel(dto);
+    return nuevaMeta.save();
   }
 
   findAll() {
-    return this.prisma.meta.findMany({
-      include: {
-        tareas: { include: { tarea: true } }, // Cargar las tareas vinculadas
-      },
-    });
+    return this.metaModel.find().populate({
+      path: 'tareas', // Nombre del campo en meta.schema.ts
+      populate: { path: 'tarea', select: 'id titulo estado' }
+    }).exec();
   }
 
   async remove(id: string) {
-    try {
-      // (En MongoDB, borrar una Meta no borra en cascada las MetaTarea,
-      // tendrías que borrarlas a mano si fuera necesario)
-      return await this.prisma.meta.delete({ where: { id } });
-    } catch (error) {
+    // Borrar también las vinculaciones
+    await this.metaTareaModel.deleteMany({ metaId: id }).exec();
+    const result = await this.metaModel.findByIdAndDelete(id).exec();
+    if (!result) {
       throw new NotFoundException('Meta no encontrada');
     }
+    return result;
   }
 
-  // --- Vinculación de Tareas ---
-
+  // (Vinculación de Tareas)
   async vincularTarea(metaId: string, tareaId: string) {
+    const nuevaVinculacion = new this.metaTareaModel({
+      metaId: metaId,
+      tareaId: tareaId,
+    });
     try {
-      return await this.prisma.metaTarea.create({
-        data: {
-          metaId: metaId,
-          tareaId: tareaId,
-        },
-      });
+      return await nuevaVinculacion.save();
     } catch (error) {
-      if (error.code === 'P2002') { // Unique constraint (si ya existe)
+      if (error.code === 11000) {
         throw new ForbiddenException('La tarea ya está vinculada a esta meta');
       }
-      if (error.code === 'P2003' || error.code === 'P2025') {
-        throw new NotFoundException('Meta o Tarea no encontrada');
-      }
-      throw error;
+      throw new NotFoundException('Meta o Tarea no encontrada');
     }
   }
 
   async desvincularTarea(metaId: string, tareaId: string) {
-    try {
-      // Prisma necesita un ID único para borrar, en `MetaTarea` es `id`
-      // Primero debemos buscar el registro
-      const metaTarea = await this.prisma.metaTarea.findFirst({
-        where: { metaId, tareaId },
-      });
-
-      if (!metaTarea) {
-        throw new NotFoundException('Vinculación no encontrada');
-      }
-
-      await this.prisma.metaTarea.delete({
-        where: { id: metaTarea.id },
-      });
-    } catch (error) {
+    const result = await this.metaTareaModel.deleteOne({ 
+      metaId: metaId, 
+      tareaId: tareaId 
+    }).exec();
+    if (result.deletedCount === 0) {
       throw new NotFoundException('Vinculación no encontrada');
     }
   }

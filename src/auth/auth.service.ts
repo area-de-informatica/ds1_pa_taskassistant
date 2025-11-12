@@ -1,58 +1,74 @@
 // src/auth/auth.service.ts
 
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { LoginDto } from './dto/login.dto'; // Crearemos este DTO
+
+import { Usuario, UsuarioDocument } from '../schemas/usuario.schema';
+import { LoginDto } from './dto/login.dto';
+
+// Define el tipo de Rol (basado en tu app)
+type RolUsuario = 'administrador' | 'docente_principal' | 'docente_invitado' | 'estudiante';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private prisma: PrismaService,
+    @InjectModel(Usuario.name) private usuarioModel: Model<UsuarioDocument>,
     private jwtService: JwtService,
   ) {}
 
   /**
-   * Valida un usuario contra la base de datos
+   * Valida al usuario. Es llamado por la estrategia local (si la usaras)
+   * o directamente por nuestro servicio de login.
+   * @param email El email del usuario
+   * @param pass La contraseña en texto plano
    */
   async validateUser(email: string, pass: string): Promise<any> {
-    const user = await this.prisma.usuario.findUnique({ where: { email } });
+    const user = await this.usuarioModel.findOne({ email }).exec();
 
-    if (user) {
-      // (¡Necesitarás 'bcrypt' para comparar contraseñas hash!)
-      // Asumiremos que tu contraseña en la BD está hasheada
-      const isMatch = true; // Reemplaza esto con: await bcrypt.compare(pass, user.passwordHash);
-      
-      if (isMatch) {
-        // No devuelvas la contraseña ni otros datos sensibles
-        const { id, rol } = user;
-        return { id, email, rol };
-      }
+    if (user && (await bcrypt.compare(pass, user.password))) {
+      // Si la validación es exitosa, devuelve el usuario sin la contraseña
+      const { password, ...result } = user.toObject(); // .toObject() es de Mongoose
+      return result;
     }
+    // Si falla, devuelve null
     return null;
   }
 
   /**
-   * Maneja el inicio de sesión y devuelve un JWT
+   * Maneja el endpoint de Login
+   * @param loginDto Contiene email y password
    */
   async login(loginDto: LoginDto) {
+    // 1. Validar el usuario usando el método anterior
     const user = await this.validateUser(loginDto.email, loginDto.password);
     
     if (!user) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // El 'payload' es la información que guardamos dentro del token.
-    // El rol es CRÍTICO para el control de acceso (RBAC)[cite: 500].
+    // 2. Crear el Payload del JWT
+    // ¡Aquí es donde incluimos el ROL, que es vital para RBAC!
     const payload = { 
-      sub: user.id, // 'subject' (el ID del usuario)
+      sub: user._id, // El ID de Mongo (importante: _id)
       email: user.email,
-      rol: user.rol // ¡Aquí guardamos el rol!
+      rol: user.rol as RolUsuario, // Asegúrate de que el 'rol' esté guardado en tu doc de Usuario
+      nombre: user.nombre,
     };
 
+    // 3. Firmar y devolver el token
     return {
       access_token: this.jwtService.sign(payload),
+      user: {
+        id: user._id,
+        email: user.email,
+        nombre: user.nombre,
+        rol: user.rol,
+      }
     };
   }
+
+  // (Aquí iría la lógica de registro/signup si la tuvieras)
 }

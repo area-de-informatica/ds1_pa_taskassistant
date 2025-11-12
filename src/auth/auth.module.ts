@@ -1,23 +1,46 @@
 // src/auth/auth.module.ts
 
 import { Module } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
+import { MongooseModule } from '@nestjs/mongoose';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
-import { JwtStrategy } from './jwt.strategy'; // Lo crearemos ahora
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
+import { JwtStrategy } from './jwt.strategy'; // Lo refactorizaremos
+import { Usuario, UsuarioSchema } from '../schemas/usuario.schema';
 
 @Module({
   imports: [
+    // Importar el esquema de Mongoose
+    MongooseModule.forFeature([
+      { name: Usuario.name, schema: UsuarioSchema },
+    ]),
+
     PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'ESTE-ES-UN-SECRETO-DE-DESARROLLO', // ¡Usa variables de entorno en producción!
-      signOptions: { 
-        expiresIn: '30m' // El token expira en 30 minutos (como pide tu RNF-SEC-03 [cite: 503])
-      }, 
+    
+    // Configurar el Módulo JWT
+    JwtModule.registerAsync({
+      imports: [ConfigModule], // Importar ConfigModule para usar .env
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        // Lee el secreto y el tiempo de expiración desde tu .env
+        secret: configService.get<string>('JWT_SECRET'),
+        signOptions: { 
+          expiresIn: Number(configService.get<string>('JWT_EXPIRES_IN')) || 1800,
+        },
+      }),
     }),
   ],
-  providers: [AuthService, JwtStrategy], // Incluimos la estrategia
   controllers: [AuthController],
+  providers: [
+    AuthService, 
+    JwtStrategy, // El proveedor de la estrategia
+  ],
+  exports: [
+    JwtStrategy, 
+    PassportModule
+  ], // Exportar para que otros módulos puedan usar los Guards
 })
 export class AuthModule {}

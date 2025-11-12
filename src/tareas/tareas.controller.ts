@@ -1,3 +1,5 @@
+// src/tareas/tareas.controller.ts
+
 import {
   Controller,
   Get,
@@ -8,18 +10,19 @@ import {
   Delete,
   UseGuards,
   Request,
-  ParseUUIDPipe,
   HttpCode,
   HttpStatus,
   UseInterceptors,
   UploadedFile,
   ParseFilePipe,
   MaxFileSizeValidator,
+    // ParseMongoIdPipe, // <-- REEMPLAZO IMPORTANTE
 } from '@nestjs/common';
+import { ParseMongoIdPipe } from '../common/pipes/parse-mongo-id.pipe';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TareasService } from './tareas.service';
 
-// --- DTOs (Data Transfer Objects) ---
+// --- DTOs (Estos no cambian) ---
 import { CreateTareaDto } from './dto/create-tarea.dto';
 import { UpdateTareaDto } from './dto/update-tarea.dto';
 import { AssignTareaDto } from './dto/assign-tarea.dto';
@@ -27,141 +30,87 @@ import { UpdateProgresoDto } from './dto/update-progreso.dto';
 import { LogTiempoDto } from './dto/log-tiempo.dto';
 import { CreateCalificacionDto } from './dto/create-calificacion.dto';
 import { CreateRecursoLinkDto } from './dto/create-recurso-link.dto';
-import { LinkEtiquetaDto } from './dto/link-etiqueta.dto'; // (RF-014/RF-015)
+import { LinkEtiquetaDto } from './dto/link-etiqueta.dto';
 
-// --- Seguridad (Guards, Decorators) ---
+// --- Seguridad ---
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
-// --- Tipos de Prisma ---
-import { RolUsuario } from '@prisma/client';
+type RolUsuario = 'administrador' | 'docente_principal' | 'docente_invitado' | 'estudiante';
 
-/**
- * Controlador para Tareas.
- * Todas las rutas están protegidas por JWT.
- * Las rutas están anidadas bajo /proyectos/:proyectoId/tareas
- */
 @UseGuards(JwtAuthGuard)
-@Controller('proyectos/:proyectoId/tareas')
+@Controller('tareas')
 export class TareasController {
   constructor(private readonly tareasService: TareasService) {}
 
-  /**
-   * (RF-001) Crear una nueva tarea en un proyecto.
-   * Solo para Administradores y Docentes Principales.
-   */
+  // (RF-001) Crear Tarea
   @Post()
-  @Roles(RolUsuario.administrador, RolUsuario.docente_principal)
+  @Roles('administrador', 'docente_principal')
   @UseGuards(RolesGuard)
-  create(
-    @Param('proyectoId', ParseUUIDPipe) proyectoId: string,
-    @Body() createTareaDto: CreateTareaDto,
-    @Request() req,
-  ) {
-    const idUsuarioCreador = req.user.userId;
-    return this.tareasService.create(
-      proyectoId,
-      idUsuarioCreador,
-      createTareaDto,
-    );
+  create(@Body() createTareaDto: CreateTareaDto, @Request() req) {
+    return this.tareasService.create(req.user.userId, createTareaDto);
   }
 
-  /**
-   * (RF-001) Obtener todas las tareas (activas) de un proyecto.
-   */
+  // (RF-001) Obtener mis Tareas
   @Get()
-  findAll(
-    @Param('proyectoId', ParseUUIDPipe) proyectoId: string,
-    @Request() req,
-  ) {
-    return this.tareasService.findAll(proyectoId, req.user);
+  findAll(@Request() req) {
+    return this.tareasService.findAll(req.user);
   }
 
-  /**
-   * (RF-001) Obtener una tarea específica por ID.
-   */
+  // (RF-001) Obtener una Tarea
   @Get(':tareaId')
   findOne(
-    @Param('proyectoId', ParseUUIDPipe) proyectoId: string,
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Request() req,
   ) {
     return this.tareasService.findOne(tareaId, req.user);
   }
 
-  /**
-   * (RF-005) Actualizar una tarea (ej. título, estado, fechas).
-   * Solo para Administradores y Docentes Principales.
-   */
+  // (RF-005) Actualizar Tarea
   @Patch(':tareaId')
-  @Roles(RolUsuario.administrador, RolUsuario.docente_principal)
+  @Roles('administrador', 'docente_principal')
   @UseGuards(RolesGuard)
   update(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Body() updateTareaDto: UpdateTareaDto,
     @Request() req,
   ) {
     return this.tareasService.update(tareaId, updateTareaDto, req.user);
   }
 
-  /**
-   * (RF-001 Delete) Enviar una tarea a la papelera (Soft Delete).
-   * Solo para Administradores y Docentes Principales.
-   */
+  // (RF-001) Borrar Tarea
   @Delete(':tareaId')
-  @Roles(RolUsuario.administrador, RolUsuario.docente_principal)
+  @Roles('administrador', 'docente_principal')
   @UseGuards(RolesGuard)
   remove(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Request() req,
   ) {
     return this.tareasService.remove(tareaId, req.user);
   }
 
-  /**
-   * (RF-002) Recuperar una tarea de la papelera.
-   * Solo para Administradores y Docentes Principales.
-   */
-  @Post(':tareaId/recuperar')
-  @Roles(RolUsuario.administrador, RolUsuario.docente_principal)
-  @UseGuards(RolesGuard)
-  @HttpCode(HttpStatus.OK)
-  recover(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
-    @Request() req,
-  ) {
-    return this.tareasService.recover(tareaId, req.user);
-  }
-
-  /**
-   * (RF-006) Asignar una tarea a un usuario (estudiante).
-   * Solo para Administradores y Docentes Principales.
-   */
+  // (RF-006) Asignar Tarea
   @Post(':tareaId/asignar')
-  @Roles(RolUsuario.administrador, RolUsuario.docente_principal)
+  @Roles('administrador', 'docente_principal')
   @UseGuards(RolesGuard)
   assign(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Body() assignTareaDto: AssignTareaDto,
     @Request() req,
   ) {
-    const idUsuarioAsignador = req.user.userId;
     return this.tareasService.assign(
       tareaId,
       assignTareaDto.idUsuario,
-      idUsuarioAsignador,
+      req.user.userId,
     );
   }
 
-  /**
-   * (RF-011) Actualizar el porcentaje de progreso de una tarea.
-   * Lo puede hacer cualquier usuario ASIGNADO a la tarea.
-   */
+  // (RF-011) Actualizar Progreso
   @Patch(':tareaId/progreso')
   @HttpCode(HttpStatus.OK)
   updateProgreso(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Body() updateProgresoDto: UpdateProgresoDto,
     @Request() req,
   ) {
@@ -172,13 +121,10 @@ export class TareasController {
     );
   }
 
-  /**
-   * (RF-012) Registrar tiempo en una tarea.
-   * Lo puede hacer cualquier usuario ASIGNADO a la tarea.
-   */
+  // (RF-012) Registrar Tiempo
   @Post(':tareaId/tiempo')
   logTiempo(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Body() logTiempoDto: LogTiempoDto,
     @Request() req,
   ) {
@@ -189,158 +135,102 @@ export class TareasController {
     );
   }
 
- /**
-   * (RF-020) Calificar una tarea completada
-   * (Caso de Uso No. 19)
-   * Solo para Administradores y Docentes Principales.
-   */
+  // (RF-020) Calificar Tarea
   @Post(':tareaId/calificar')
-  @Roles('administrador', 'docente_principal') // <-- Guardia de Rol
+  @Roles('administrador', 'docente_principal')
   @UseGuards(RolesGuard)
   @HttpCode(HttpStatus.CREATED)
   calificar(
-    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- Pipe de Mongo
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Body() createCalificacionDto: CreateCalificacionDto,
-    @Request() req, // Para saber qué docente está calificando
+    @Request() req,
   ) {
-    const idUsuarioCalificador = req.user.userId;
     return this.tareasService.calificar(
       tareaId,
-      idUsuarioCalificador,
+      req.user.userId,
       createCalificacionDto,
     );
   }
 
-
-  /**
-   * (RF-010) Adjuntar un ENLACE a una tarea
-   * Solo para Administradores y Docentes Principales.
-   */
+  // (RF-010) Adjuntar Link
   @Post(':tareaId/recursos/link')
-  @Roles(RolUsuario.administrador, RolUsuario.docente_principal)
+  @Roles('administrador', 'docente_principal')
   @UseGuards(RolesGuard)
   addLinkRecurso(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @Body() createRecursoLinkDto: CreateRecursoLinkDto,
   ) {
     return this.tareasService.addLinkRecurso(tareaId, createRecursoLinkDto);
   }
 
-  /**
-   * (RF-010) Subir un ARCHIVO y adjuntarlo a una tarea
-   * Solo para Administradores y Docentes Principales.
-   */
+  // (RF-010) Subir Archivo
   @Post(':tareaId/recursos/upload')
-  @Roles(RolUsuario.administrador, RolUsuario.docente_principal)
+  @Roles('administrador', 'docente_principal')
   @UseGuards(RolesGuard)
   @UseInterceptors(FileInterceptor('file'))
   addFileRecurso(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
     @UploadedFile(
       new ParseFilePipe({
-        validators: [
-          new MaxFileSizeValidator({ maxSize: 50 * 1024 * 1024 }),
-        ],
+        validators: [new MaxFileSizeValidator({ maxSize: 50 * 1024 * 1024 })],
       }),
     )
     file: Express.Multer.File,
-    @Request() req,
   ) {
-    return this.tareasService.addFileRecurso(tareaId, file, req.user);
+    return this.tareasService.addFileRecurso(tareaId, file);
   }
-
-  /**
-   * (RF-014) Vincular una etiqueta de color a una tarea
-   * Todos los roles pueden etiquetar (según la matriz de permisos).
-   */
-  @Post(':tareaId/etiquetas/color')
-  @HttpCode(HttpStatus.CREATED)
-  addEtiquetaColor(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
-    @Body() linkEtiquetaDto: LinkEtiquetaDto,
-    @Request() req,
-  ) {
-    return this.tareasService.addEtiquetaColor(
-      tareaId,
-      linkEtiquetaDto.etiquetaId,
-      req.user,
-    );
-  }
-
-  /**
-   * (RF-014) Desvincular una etiqueta de color de una tarea
-   * Todos los roles pueden etiquetar.
-   */
-  @Delete(':tareaId/etiquetas/color/:etiquetaId')
-  @HttpCode(HttpStatus.NO_CONTENT) // 204 No Content
-  removeEtiquetaColor(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
-    @Param('etiquetaId', ParseUUIDPipe) etiquetaId: string,
-    @Request() req,
-  ) {
-    return this.tareasService.removeEtiquetaColor(
-      tareaId,
-      etiquetaId,
-      req.user,
-    );
-  }
-
-  /**
-   * (RF-015) Vincular una etiqueta de palabra clave a una tarea
-   * Todos los roles pueden etiquetar.
-   */
-  @Post(':tareaId/etiquetas/palabraclave')
-  @HttpCode(HttpStatus.CREATED)
-  addEtiquetaPalabra(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
-    @Body() linkEtiquetaDto: LinkEtiquetaDto,
-    @Request() req,
-  ) {
-    return this.tareasService.addEtiquetaPalabra(
-      tareaId,
-      linkEtiquetaDto.etiquetaId,
-      req.user,
-    );
-  }
-
-  /**
-   * (RF-015) Desvincular una etiqueta de palabra clave de una tarea
-   * Todos los roles pueden etiquetar.
-   */
-  @Delete(':tareaId/etiquetas/palabraclave/:etiquetaId')
-  @HttpCode(HttpStatus.NO_CONTENT) // 204 No Content
-  removeEtiquetaPalabra(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
-    @Param('etiquetaId', ParseUUIDPipe) etiquetaId: string,
-    @Request() req,
-  ) {
-    return this.tareasService.removeEtiquetaPalabra(
-      tareaId,
-      etiquetaId,
-      req.user,
-    );
-  }
+  
+  // (RF-016) Anclar Tarea
   @Post(':tareaId/anclar')
   @HttpCode(HttpStatus.CREATED)
   anclarTarea(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
-    @Request() req, // Usamos req.user.userId para saber QUIÉN ancla
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
+    @Request() req,
   ) {
     return this.tareasService.anclar(req.user.userId, tareaId);
   }
 
-  /**
-   * (RF-016) Desanclar una tarea.
-   * (Caso de Uso No. 25) - Todos los roles pueden.
-   */
+  // (RF-016) Desanclar Tarea
   @Delete(':tareaId/anclar')
-  @HttpCode(HttpStatus.NO_CONTENT) // 204 No Content
+  @HttpCode(HttpStatus.NO_CONTENT)
   desanclarTarea(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
-    @Request() req, // Usamos req.user.userId
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string, // <-- CAMBIO
+    @Request() req,
   ) {
     return this.tareasService.desanclar(req.user.userId, tareaId);
   }
-  
 
+  // (RF-014 / RF-015) Vincular Etiqueta
+  @Post(':tareaId/etiquetas/:tipo')
+  @HttpCode(HttpStatus.CREATED)
+  addEtiqueta(
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string,
+    @Param('tipo') tipo: 'color' | 'palabra',
+    @Body() linkEtiquetaDto: LinkEtiquetaDto,
+    @Request() req,
+  ) {
+    return this.tareasService.addEtiqueta(
+      tareaId,
+      linkEtiquetaDto.etiquetaId,
+      tipo,
+      req.user,
+    );
+  }
+
+  // (RF-014 / RF-015) Desvincular Etiqueta
+  @Delete(':tareaId/etiquetas/:tipo/:etiquetaId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeEtiqueta(
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string,
+    @Param('tipo') tipo: 'color' | 'palabra',
+    @Param('etiquetaId', ParseMongoIdPipe) etiquetaId: string,
+    @Request() req,
+  ) {
+    return this.tareasService.removeEtiqueta(
+      tareaId,
+      etiquetaId,
+      tipo,
+      req.user,
+    );
+  }
 }

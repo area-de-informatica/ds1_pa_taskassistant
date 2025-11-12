@@ -7,37 +7,38 @@ import {
   Param, 
   UseGuards, 
   Request, 
-  ParseUUIDPipe 
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { ComentariosService } from './comentarios.service';
 import { CreateComentarioDto } from './dto/create-comentario.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ParseMongoIdPipe } from '../common/pipes/parse-mongo-id.pipe';
 
-@UseGuards(JwtAuthGuard) // Todos los endpoints de comentarios requieren estar logueado
-@Controller('proyectos/:proyectoId/tareas/:tareaId/comentarios') // Ruta anidada
+@ApiBearerAuth()
+@ApiTags('Comentarios')
+@UseGuards(JwtAuthGuard)
+@Controller('tareas/:tareaId/comentarios')
 export class ComentariosController {
   constructor(private readonly comentariosService: ComentariosService) {}
 
-  /**
-   * (RF-008) Publicar un comentario en una tarea
-   * (RF-009) Gestionar @menciones
-   */
   @Post()
+  @ApiOperation({ summary: 'Publicar un comentario en una tarea' })
+  @ApiResponse({ status: 201, description: 'Comentario creado exitosamente.' })
+  @ApiResponse({ status: 404, description: 'Tarea no encontrada.' })
+  @ApiParam({ name: 'tareaId', description: 'ID de la tarea', type: String })
+  @HttpCode(HttpStatus.CREATED)
   create(
-    @Param('tareaId', ParseUUIDPipe) tareaId: string,
+    @Param('tareaId', ParseMongoIdPipe) tareaId: string,
     @Body() createComentarioDto: CreateComentarioDto,
     @Request() req,
   ) {
-    const idUsuarioAutor = req.user.userId; // ID del usuario logueado (del JWT)
-    
-    // (Ignoramos proyectoId por ahora, pero se usaría para validación)
-
+    const idUsuarioAutor = req.user.userId;
     return this.comentariosService.create(
-      tareaId, 
-      idUsuarioAutor, 
+      tareaId,
+      idUsuarioAutor,
       createComentarioDto
     );
   }
-
-  // (Aquí irían los endpoints GET, PATCH, DELETE para comentarios)
 }
