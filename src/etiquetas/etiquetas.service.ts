@@ -47,9 +47,6 @@ export class EtiquetasService {
   }
 
   async removePalabra(id: string) {
-    // (En producción, deberías borrar también las 'EtiquetaTarea'
-    // que hacen referencia a esta etiqueta)
-    
     const result = await this.etiquetaPalabraModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException('Etiqueta de palabra no encontrada');
@@ -76,9 +73,7 @@ export class EtiquetasService {
     return this.etiquetaColorModel.find().exec();
   }
 
-  async removeColor(id: string) {
-    // (Igual que arriba, deberías borrar las 'EtiquetaTarea' asociadas)
-    
+  async removeColor(id: string) { 
     const result = await this.etiquetaColorModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException('Etiqueta de color no encontrada');
