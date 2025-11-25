@@ -1,7 +1,7 @@
 // src/tareas/dto/update-tarea.dto.ts
 
 import { IsString, IsOptional, IsDateString, IsEnum } from 'class-validator';
-import { PrioridadTarea, EstadoTarea } from '@prisma/client';
+import { PrioridadTarea, EstadoTarea } from '../tarea.enums';
 
 // Para actualizar, todos los campos son opcionales
 export class UpdateTareaDto {

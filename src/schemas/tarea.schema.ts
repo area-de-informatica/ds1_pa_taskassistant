@@ -33,4 +33,5 @@ export class Tarea extends Document {
   fechaVencimiento?: Date;
 }
 
+export type TareaDocument = Tarea & Document;
 export const TareaSchema = SchemaFactory.createForClass(Tarea);

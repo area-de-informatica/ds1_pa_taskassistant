@@ -16,4 +16,5 @@ export class Usuario extends Document {
   rol: string;
 }
 
+export type UsuarioDocument = Usuario & Document;
 export const UsuarioSchema = SchemaFactory.createForClass(Usuario);
