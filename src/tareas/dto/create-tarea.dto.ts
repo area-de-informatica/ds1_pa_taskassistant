@@ -1,6 +1,7 @@
 // src/tareas/dto/create-tarea.dto.ts
 
-import { IsString, IsNotEmpty, IsOptional, IsDateString, IsEnum } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsDateString, IsEnum, IsBoolean, IsMongoId } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 import { PrioridadTarea, EstadoTarea } from '../tarea.enums';
 
 export class CreateTareaDto {
@@ -25,4 +26,14 @@ export class CreateTareaDto {
   @IsEnum(EstadoTarea)
   @IsOptional()
   estado?: EstadoTarea;
+
+  @ApiProperty({ description: 'Si la tarea requiere subir archivo', example: true })
+  @IsOptional()
+  @IsBoolean()
+  requiereArchivo?: boolean;
+
+  @ApiProperty({ description: 'ID del estudiante a asignar', example: '65a1f2c3d4e5f6g7h8i9j0k1' })
+  @IsOptional()
+  @IsMongoId()
+  asignadoId?: string;
 }

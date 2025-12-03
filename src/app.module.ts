@@ -9,6 +9,8 @@ import { AuthModule } from './auth/auth.module';
 import { TareasModule } from './tareas/tareas.module';
 import { ComentariosModule } from './comentarios/comentarios.module';
 import { MetasModule } from './metas/metas.module';
+import { UsuariosModule } from './usuarios/usuarios.module';
+import { EtiquetasModule } from './etiquetas/etiquetas.module';
 // (No necesitamos un PrismaModule)
 
 @Module({
@@ -26,6 +28,8 @@ import { MetasModule } from './metas/metas.module';
     TareasModule,
     ComentariosModule,
     MetasModule,
+    UsuariosModule,
+    EtiquetasModule
     // (Asegúrate de importar EtiquetasModule si lo creaste)
   ],
   controllers: [],

@@ -8,6 +8,9 @@ import * as bcrypt from 'bcrypt';
 
 import { Usuario, UsuarioDocument } from '../schemas/usuario.schema';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+
+import { BadRequestException } from '@nestjs/common';
 
 // Define el tipo de Rol (basado en tu app)
 type RolUsuario = 'administrador' | 'docente_principal' | 'docente_invitado' | 'estudiante';
@@ -70,5 +73,23 @@ export class AuthService {
     };
   }
 
-  // (Aquí iría la lógica de registro/signup si la tuvieras)
+  async register(registerDto: RegisterDto) {
+    const existe = await this.usuarioModel.findOne({ email: registerDto.email });
+    if (existe) {
+      throw new BadRequestException('El correo electrónico ya está registrado.');
+    }
+
+    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+
+    const nuevoUsuario = new this.usuarioModel({
+      ...registerDto,
+      password: hashedPassword,
+      // CAMBIO: Si viene un rol en el DTO, úsalo. Si no, usa 'estudiante'.
+      rol: registerDto.rol || 'estudiante', 
+    });
+
+    await nuevoUsuario.save();
+    return { message: 'Usuario registrado exitosamente' };
+  }
+
 }

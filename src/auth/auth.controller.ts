@@ -4,6 +4,7 @@ import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 
 @ApiTags('Auth')
 @Controller('auth') // La ruta base será /auth
@@ -17,5 +18,11 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Credenciales inválidas.' })
   signIn(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+  // --- REGISTER ---
+  @Post('register')
+  @ApiOperation({ summary: 'Registrar nuevo estudiante (Público)' })
+  register(@Body() registerDto: RegisterDto) {
+    return this.authService.register(registerDto);
   }
 }

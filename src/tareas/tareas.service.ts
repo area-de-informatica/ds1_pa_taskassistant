@@ -5,16 +5,17 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose'; // <-- Inyectar Modelo
-import { Model } from 'mongoose'; // <-- Tipo Modelo
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 
-// --- Importar todos los Schemas y DTOs ---
+// Schemas
 import { Tarea, TareaDocument } from '../schemas/tarea.schema';
 import { Calificacion, CalificacionDocument } from '../schemas/calificacion.schema';
 import { Recurso, RecursoDocument } from '../schemas/recurso.schema';
 import { Anclado, AncladoDocument } from '../schemas/anclado.schema';
 import { EtiquetaTarea, EtiquetaTareaDocument } from '../schemas/etiqueta-tarea.schema';
 
+// DTOs
 import { CreateTareaDto } from './dto/create-tarea.dto';
 import { UpdateTareaDto } from './dto/update-tarea.dto';
 import { UpdateProgresoDto } from './dto/update-progreso.dto';
@@ -22,7 +23,6 @@ import { LogTiempoDto } from './dto/log-tiempo.dto';
 import { CreateCalificacionDto } from './dto/create-calificacion.dto';
 import { CreateRecursoLinkDto } from './dto/create-recurso-link.dto';
 
-// --- Tipos/Enums (Strings para Mongo) ---
 const EstadoTarea = {
   nueva: 'pendiente',
   en_progreso: 'en_progreso',
@@ -48,7 +48,6 @@ type userPayload = {
 @Injectable()
 export class TareasService {
   constructor(
-    // Inyectar todos los modelos que este servicio necesita
     @InjectModel(Tarea.name) private tareaModel: Model<TareaDocument>,
     @InjectModel(Calificacion.name) private calificacionModel: Model<CalificacionDocument>,
     @InjectModel(Recurso.name) private recursoModel: Model<RecursoDocument>,
@@ -66,32 +65,40 @@ export class TareasService {
       progreso: 0,
       tiempoRegistrado: 0,
       creadorId: idUsuarioCreador,
-      asignadoId: null,
+      asignadoId: dto.asignadoId || null,
+      requiereArchivo: dto.requiereArchivo || false,
       fechaVencimiento: dto.fechaEntrega ? new Date(dto.fechaEntrega) : null,
     });
-    return nuevaTarea.save(); // <-- .save() en lugar de .create()
+    return nuevaTarea.save();
   }
 
   // (RF-001) Leer Tareas
   async findAll(user: userPayload) {
-    return this.tareaModel.find({
-      OR: [{ creadorId: user.userId }, { asignadoId: user.userId }],
-    })
-    .populate('asignado', 'id nombre')
-    .populate('creador', 'id nombre')
-    .sort({ createdAt: -1 })
-    .exec();
+    const filtro: any = {};
+    if (user.rol !== 'administrador') {
+      filtro.$or = [
+        { creadorId: user.userId },
+        { asignadoId: user.userId }
+      ];
+    }
+
+    return this.tareaModel.find(filtro)
+      .populate('asignadoId', 'id nombre email')
+      .populate('creadorId', 'id nombre email')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
-  // (RF-001) Leer una Tarea
+  // (RF-001) Leer una Tarea (CORREGIDO Y ROBUSTO)
   async findOne(tareaId: string, user: userPayload) {
+    // 1. Buscar la tarea SOLO por ID
     const tarea = await this.tareaModel.findById(tareaId)
-      // .populate() reemplaza a 'include' de Prisma
-      .populate('comentarios') 
+      .populate('comentarios')
+      // Ahora estos populate funcionarán gracias al cambio en el Schema
       .populate({ path: 'etiquetas', populate: ['etiquetaColor', 'etiquetaPalabra']})
       .populate({ path: 'metas', populate: 'meta' })
-      .populate('asignado', 'id nombre email')
-      .populate('creador', 'id nombre email')
+      .populate('asignadoId', 'id nombre email')
+      .populate('creadorId', 'id nombre email')
       .populate({
         path: 'calificaciones',
         populate: { path: 'calificador', select: 'id nombre' },
@@ -102,42 +109,37 @@ export class TareasService {
     if (!tarea) {
       throw new NotFoundException('Tarea no encontrada');
     }
-    
-    // (Autorización)
-    if (tarea.creadorId.toString() !== user.userId && 
-        tarea.asignadoId?.toString() !== user.userId && 
-        user.rol !== 'administrador') {
-      throw new ForbiddenException('No tienes permiso para ver esta tarea');
+
+    // 2. Verificación de Permisos Manual (Segura con Strings)
+    if (user.rol !== 'administrador') {
+      // Extraemos los IDs como strings seguros para evitar errores de tipo
+      const creadorIdStr = (tarea.creadorId as any)?._id?.toString() || tarea.creadorId?.toString();
+      const asignadoIdStr = (tarea.asignadoId as any)?._id?.toString() || tarea.asignadoId?.toString();
+      
+      // Si no coincide con ninguno, bloqueamos
+      if (creadorIdStr !== user.userId && asignadoIdStr !== user.userId) {
+        throw new ForbiddenException('No tienes permiso para ver esta tarea');
+      }
     }
+    
     return tarea;
   }
 
   // (RF-005) Actualizar Tarea
   async update(tareaId: string, dto: UpdateTareaDto, user: userPayload) {
-    // (Añadir lógica de autorización)
     return this.tareaModel.findByIdAndUpdate(tareaId, {
         titulo: dto.titulo,
         descripcion: dto.descripcion,
         estado: dto.estado,
         prioridad: dto.prioridad,
         fechaVencimiento: dto.fechaEntrega ? new Date(dto.fechaEntrega) : undefined,
-    }, { new: true }).exec(); // { new: true } devuelve el documento actualizado
+    }, { new: true }).exec();
   }
 
   // (RF-001) Borrar Tarea
   async remove(tareaId: string, user: userPayload) {
-    // (Añadir lógica de autorización)
-    
-    // (Borrado Físico - CUIDADO)
-    // Deberías borrar manualmente calificaciones, recursos, etc.
-    // await this.calificacionModel.deleteMany({ tareaId });
-    // await this.recursoModel.deleteMany({ tareaId });
-    // ...etc.
-    
     const result = await this.tareaModel.findByIdAndDelete(tareaId).exec();
-    if (!result) {
-      throw new NotFoundException('Tarea no encontrada');
-    }
+    if (!result) throw new NotFoundException('Tarea no encontrada');
     return result;
   }
 
@@ -168,8 +170,6 @@ export class TareasService {
   // (RF-012) Registrar Tiempo
   async logTiempo(tareaId: string, userId: string, dto: LogTiempoDto) {
     await this.checkIfUserIsAssigned(tareaId, userId);
-    
-    // $inc es el operador atómico de Mongo para incrementar
     return this.tareaModel.findByIdAndUpdate(tareaId, {
       $inc: { tiempoRegistrado: dto.minutos } 
     }, { new: true }).exec();
@@ -212,7 +212,7 @@ export class TareasService {
     
     const nuevoRecurso = new this.recursoModel({
       nombre: file.originalname,
-      url: file.path, // Ruta donde Multer guardó el archivo
+      url: file.path,
       tipo: tipo,
       tamaño: file.size,
       formato: file.mimetype,
@@ -223,73 +223,41 @@ export class TareasService {
   
   // (RF-016) Anclar Tarea
   async anclar(userId: string, tareaId: string) {
-    // (Autorización)
-    const anclado = new this.ancladoModel({
-      idUsuario: userId,
-      idTarea: tareaId,
-    });
-    try {
-      return await anclado.save();
-    } catch (error) {
-      if (error.code === 11000) { // Error de duplicado en Mongo
-        throw new ForbiddenException('Esta tarea ya está anclada');
-      }
-      throw error;
-    }
+    const anclado = new this.ancladoModel({ idUsuario: userId, idTarea: tareaId });
+    try { return await anclado.save(); }
+    catch (error) { if (error.code === 11000) throw new ForbiddenException('Ya anclada'); throw error; }
   }
 
   // (RF-016) Desanclar Tarea
   async desanclar(userId: string, tareaId: string) {
-    // (Autorización)
-    const result = await this.ancladoModel.deleteOne({ 
-      idUsuario: userId, 
-      idTarea: tareaId 
-    }).exec();
-    if (result.deletedCount === 0) {
-      throw new NotFoundException('La tarea no está anclada por este usuario');
-    }
+    const result = await this.ancladoModel.deleteOne({ idUsuario: userId, idTarea: tareaId }).exec();
+    if (result.deletedCount === 0) throw new NotFoundException('No anclada');
   }
 
-  // (RF-014 / RF-015) Vincular Etiqueta
+  // (RF-014 / RF-015) Etiquetas
   async addEtiqueta(tareaId: string, etiquetaId: string, tipo: 'color' | 'palabra', user: userPayload) {
-    // (Autorización)
     const nuevaRelacion = new this.etiquetaTareaModel({
       tareaId: tareaId,
       etiquetaPalabraId: tipo === 'palabra' ? etiquetaId : undefined,
       etiquetaColorId: tipo === 'color' ? etiquetaId : undefined,
     });
-    try {
-      return await nuevaRelacion.save();
-    } catch (error) {
-      if (error.code === 11000) {
-        throw new ForbiddenException('La tarea ya tiene esta etiqueta');
-      }
-      throw new NotFoundException('Tarea o Etiqueta no encontrada');
-    }
+    try { return await nuevaRelacion.save(); }
+    catch (error) { if (error.code === 11000) throw new ForbiddenException('Ya etiquetada'); throw new NotFoundException('Error'); }
   }
 
-  // (RF-014 / RF-015) Desvincular Etiqueta
   async removeEtiqueta(tareaId: string, etiquetaId: string, tipo: 'color' | 'palabra', user: userPayload) {
-    // (Autorización)
     const filtro = {
       tareaId: tareaId,
       [tipo === 'color' ? 'etiquetaColorId' : 'etiquetaPalabraId']: etiquetaId,
     };
     const result = await this.etiquetaTareaModel.deleteOne(filtro).exec();
-    if (result.deletedCount === 0) {
-      throw new NotFoundException('La tarea no tiene esta etiqueta');
-    }
+    if (result.deletedCount === 0) throw new NotFoundException('Etiqueta no encontrada en tarea');
   }
 
-
-  // --- HELPER (Adaptado a Mongoose) ---
+  // --- HELPER ---
   private async checkIfUserIsAssigned(tareaId: string, userId: string) {
     const tarea = await this.tareaModel.findById(tareaId, 'asignadoId').exec();
-    if (!tarea) {
-      throw new NotFoundException('Tarea no encontrada');
-    }
-    if (tarea.asignadoId?.toString() !== userId) {
-      throw new ForbiddenException('No tienes permiso para esta acción (no estás asignado)');
-    }
+    if (!tarea) throw new NotFoundException('Tarea no encontrada');
+    if (tarea.asignadoId?.toString() !== userId) throw new ForbiddenException('No estás asignado');
   }
 }
